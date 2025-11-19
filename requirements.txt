@@ -1,0 +1,4 @@
+pooltool-billiards
+numpy
+bayesian-optimization
+
