@@ -26,8 +26,8 @@ results = {'AGENT_A_WIN': 0, 'AGENT_B_WIN': 0, 'SAME': 0}
 n_games = 120  # 对战局数 自己测试时可以修改 扩充为120局为了减少随机带来的扰动
 
 ## 选择对打的对手
-agent_a, agent_b = BasicAgent(), NewAgent() # 与 BasicAgent 对打
-# agent_a, agent_b = BasicAgentPro(), NewAgent() # 与 BasicAgentPro 对打
+# agent_a, agent_b = BasicAgent(), NewAgent() # 与 BasicAgent 对打
+agent_a, agent_b = BasicAgentPro(), NewAgent() # 与 BasicAgentPro 对打
 
 players = [agent_a, agent_b]  # 用于切换先后手
 target_ball_choice = ['solid', 'solid', 'stripe', 'stripe']  # 轮换球型
@@ -70,6 +70,8 @@ for i in range(n_games):
                 results[['AGENT_A_WIN', 'AGENT_B_WIN'][i % 2]] += 1
             else:
                 results[['AGENT_A_WIN', 'AGENT_B_WIN'][(i+1) % 2]] += 1
+            # 每局结束后输出当前结果
+            print(f">>> 第{i}局结束 | BasicAgent: {results['AGENT_A_WIN']}胜 | NewAgent: {results['AGENT_B_WIN']}胜 | 平局: {results['SAME']}")
             break
 
 # 计算分数：胜1分，负0分，平局0.5

@@ -370,3 +370,4 @@ class BasicAgent(Agent):
             import traceback
             traceback.print_exc()
             return self._random_action()
+
