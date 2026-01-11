@@ -23,25 +23,27 @@ set_random_seed(enable=False, seed=42)
 
 env = PoolEnv()
 results = {'AGENT_A_WIN': 0, 'AGENT_B_WIN': 0, 'SAME': 0}
-n_games = 120  # 对战局数 自己测试时可以修改 扩充为120局为了减少随机带来的扰动
+n_games = 20  # 对战局数 自己测试时可以修改 扩充为120局为了减少随机带来的扰动
 
 ## 选择对打的对手
 # agent_a, agent_b = BasicAgent(), NewAgent() # 与 BasicAgent 对打
 agent_a, agent_b = BasicAgentPro(), NewAgent() # 与 BasicAgentPro 对打
 
 players = [agent_a, agent_b]  # 用于切换先后手
+player_class = [agent_a.__class__.__name__, agent_b.__class__.__name__]
 target_ball_choice = ['solid', 'solid', 'stripe', 'stripe']  # 轮换球型
 
 for i in range(n_games): 
     print()
     print(f"------- 第 {i} 局比赛开始 -------")
     env.reset(target_ball=target_ball_choice[i % 4])
-    player_class = players[i % 2].__class__.__name__
-    ball_type = target_ball_choice[i % 4]
-    print(f"本局 Player A: {player_class}, 目标球型: {ball_type}")
+    # player_class = players[i % 2].__class__.__name__
+    # ball_type = target_ball_choice[i % 4]
+    print(f"本局 Player A: {player_class[i % 2]}, 目标球型: {target_ball_choice[i % 4]}")
+    print(f"本局 Player B: {player_class[(i + 1) % 2]}, 目标球型: {target_ball_choice[(i + 2) % 4]}")
     while True:
         player = env.get_curr_player()
-        print(f"[第{env.hit_count}次击球] player: {player}")
+        print(f"[第{env.hit_count}次击球] player: {player}, agent: {player_class[i % 2] if player == 'A' else player_class[(i + 1) % 2]}")
         obs = env.get_observation(player)
         if player == 'A':
             action = players[i % 2].decision(*obs)
@@ -72,6 +74,7 @@ for i in range(n_games):
                 results[['AGENT_A_WIN', 'AGENT_B_WIN'][(i+1) % 2]] += 1
             # 每局结束后输出当前结果
             print(f">>> 第{i}局结束 | BasicAgent: {results['AGENT_A_WIN']}胜 | NewAgent: {results['AGENT_B_WIN']}胜 | 平局: {results['SAME']}")
+            print(f">>> 当前胜率：NewAgent: {results['AGENT_B_WIN'] / (i + 1):.2%}")
             break
 
 # 计算分数：胜1分，负0分，平局0.5

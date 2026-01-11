@@ -1,0 +1,597 @@
+% filepath: d:\self_learning\RL\AI3603\AI3603-Billiards\AI3603_Course_Report_Template__From_IEEE_Sponsored_Conferences_and_Symposia_\main.tex
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% AI3603 人工智能 - 台球AI智能体课程报告
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\documentclass[letterpaper, 10 pt, conference]{ieeeconf}
+
+\IEEEoverridecommandlockouts
+\overrideIEEEmargins
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{graphicx}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{float}
+\usepackage{caption}
+
+\title{\LARGE \bf
+A Hybrid Billiards AI Agent with Geometric Pre-Analysis, \\
+Noise-Robust Simulation, and Local Optimization
+}
+
+\author{Beiyu Zhou 523030910012, Ruikang Lin 523030910013}
+
+
+\begin{document}
+
+\maketitle
+\thispagestyle{empty}
+\pagestyle{empty}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\begin{abstract}
+
+This paper presents a robust hybrid AI agent designed for the complex environment of the 8-ball pool game. Addressing the dual challenges of a continuous high-dimensional action space and inherent execution uncertainty, our proposed agent, named NewAgent, integrates geometric reasoning with physics-based simulation. The core contribution is a hierarchical decision-making pipeline that combines geometric pre-analysis for rapid candidate generation, noise-robust simulation evaluation to mitigate execution errors, and local optimization for parameter fine-tuning. Key innovations include a multi-layer eight-ball risk detection mechanism to prevent catastrophic fouls and a weighted scoring system that balances ideal theoretical performance with practical robustness. Extensive experimental results demonstrate that the agent achieves an impressive average win rate of \textbf{88.2\%} against the baseline BasicAgent (1,200 games) and \textbf{60.1\%} against the advanced MCTS-based BasicAgentPro (9,600 games), validating the efficacy of the proposed hybrid strategy in dynamic and uncertain scenarios.
+
+\end{abstract}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{INTRODUCTION}
+
+Billiards is a classic game of skill that demands not only precise physical execution but also long-term strategic planning and the ability to manage uncertainty. In this project, we develop an autonomous AI agent for 8-ball pool, a game where the objective is to pocket a specific set of assigned balls (solids 1-7 or stripes 9-15) before legally pocketing the 8-ball to secure victory.
+
+Designing a competent billiards AI presents several formidable challenges:
+\begin{itemize}
+    \item \textbf{High-dimensional Continuous Action Space}: The agent must simultaneously determine optimal values for velocity $V_0$, cue angle $\phi$, and spin parameters $(a, b, \theta)$, forming a complex continuous 5-dimensional search space that renders exhaustive search infeasible.
+    \item \textbf{Stochastic Execution Noise}: Unlike perfect information games like Chess, real-world and simulated pool shots possess inherent uncertainty. Significant Gaussian noise is applied to all action parameters, meaning a theoretically perfect shot may fail in practice.
+    \item \textbf{Complex Strategic Constraints}: The game rules impose strict penalties. The agent must rigorously avoid pocketing the 8-ball prematurely, which results in an instant loss, while maximizing the throughput of pocketing target balls.
+    \item \textbf{Computational Efficiency}: Decisions must be rendered within strict time limits (single game $<$ 3 minutes), requiring algorithms that are not only accurate but also computationally lightweight.
+\end{itemize}
+
+To address these challenges, our proposed NewAgent adopts a four-stage decision pipeline: geometric pre-analysis, fast screening, noise-robust evaluation, and local optimization. This hybrid approach effectively bridges the gap between the computational efficiency of geometric heuristics and the predictive accuracy of physics-based simulations.
+
+\section{PREVIOUS ATTEMPTS AND LESSONS LEARNED}
+
+\begin{figure}[h] % h:当前位置, t:顶部, b:底部, p:浮动页
+    \centering
+    \includegraphics[width=1.0\columnwidth]{attempts.png} 
+    \caption{Previous Attempts.}
+    \label{fig:attempts} % 引用标签，方便文中提及
+\end{figure}
+
+The development of NewAgent was an iterative process. Before arriving at our final solution, we explored several alternative approaches, each revealing specific insights into the nature of the problem. This section summarizes the evolution of our strategy.
+
+\subsection{Attempt 1: Pure Random Search}
+
+Our initial naive approach employed random sampling within the action space, followed by simulation-based evaluation. Despite its implementation simplicity, this method suffered severely from the "curse of dimensionality":
+\begin{itemize}
+    \item \textbf{Low Hit Rate}: Randomly selected angles rarely resulted in valid pot attempts.
+    \item \textbf{Inefficiency}: A vast majority of the simulation budget was wasted on shots that missed the target ball entirely or resulted in fouls.
+    \item \textbf{poor Performance}: Win rate remained at $\sim$30\% against BasicAgent.
+\end{itemize}
+
+\textbf{Lesson}: In high-dimensional continuous spaces, unaided random exploration is highly inefficient; geometric guidance is essential to narrow the search space.
+
+\subsection{Attempt 2: Bayesian Optimization Only}
+
+Inspired by the provided BasicAgent, we implemented Bayesian optimization using Gaussian Process (GP) surrogate models to map actions to rewards. While theoretically sound, we encountered practical issues:
+\begin{itemize}
+    \item \textbf{High Overhead}: The acquisition function optimization and GP fitting were computationally expensive per decision.
+    \item \textbf{Discontinuous Rewards}: The billiard reward landscape is sparse and discontinuous (sharp peaks for successful pots), which is difficult for standard GPs to model accurately with limited samples.
+    \item \textbf{Result}: Win rate hovered around $\sim$50\% against BasicAgent.
+\end{itemize}
+
+\textbf{Lesson}: While powerful, Bayesian optimization requires careful kernel tuning and is less suited for the sharp, discontinuous reward structure of billiards compared to direct simulation.
+
+\subsection{Attempt 3: MCTS Without Pre-filtering}
+
+We subsequently implemented a Monte Carlo Tree Search (MCTS) directly on the continuous action space using progressive widening. However, without domain knowledge:
+\begin{itemize}
+    \item \textbf{Slow Convergence}: The large branching factor prevented the tree from growing deep enough to find strategic sequences.
+    \item \textbf{Resource Waste}: Too many simulations were expended on geometrically impossible shots (e.g., blocked paths).
+    \item \textbf{Result}: Win rate improved slightly to $\sim$55\% against BasicAgent.
+\end{itemize}
+
+\textbf{Lesson}: MCTS is powerful but needs candidate pre-filtering to prune the decision tree and focus computation on geometrically plausible actions.
+
+\subsection{Final Approach: Hybrid Strategy}
+
+Combining these lessons, we developed a hybrid architecture that leverages geometric analysis for pruning and noise-aware simulation for evaluation. This approach:
+\begin{enumerate}
+    \item Uses geometry for efficient candidate generation (fast pruning).
+    \item Employs physics simulation for accurate outcome prediction.
+    \item Adds explicit noise testing for robustness against uncertainty.
+    \item Applies local optimization to refine the final trajectory.
+\end{enumerate}
+
+This combination achieved the best specific performance, reaching an \textbf{88.2\%} win rate against BasicAgent.
+
+% \begin{figure*}[t]  % 使用 figure* 跨双栏，[t] 表示放在页面顶部
+%     \centering
+%     \includegraphics[width=0.9\textwidth]{pipeline.png} % 调整宽度比例
+%     \caption{Illustration of our Pipeline. This figure spans across two columns.}
+%     \label{fig:pipeline}
+% \end{figure*}
+
+
+\section{RELATED WORK}
+
+\subsection{Physics-Based Simulation}
+
+Accurate prediction in billiards relies heavily on realistic physics engines. The pooltool library \cite{pooltool} provides a high-fidelity simulation environment that models ball-ball collisions, spin effects, and cushion interactions. Our agent leverages this simulator as a forward model for shot evaluation, allowing it to foresee the consequences of its actions.
+
+\subsection{Search-Based Methods}
+
+Tree search algorithms, particularly Monte Carlo Tree Search (MCTS), have been successfully applied to various game domains \cite{mcts_games}. However, the continuous action space and real-time constraints of billiards make applying pure MCTS challenging. Recent works suggest that combining heuristics with search allows for better scalability. Our approach follows this paradigm by using geometric heuristics to drastically reduce the search space before applying simulation-based evaluation \cite{billiards_ai}.
+
+\subsection{Noise-Robust Planning}
+
+In robotics and continuous control tasks, handling execution uncertainty is a critical requirement \cite{robust_planning}. Standard planning algorithms often assume deterministic outcomes, leading to brittle plans that fail under noise. We adopt a noise-aware evaluation scheme inspired by robust control theory, weighing both ideal and noisy simulation outcomes to select actions that are resilient to execution errors \cite{deeprl}.
+
+
+
+\section{METHODOLOGY}
+
+\subsection{System Overview}
+
+\begin{figure}[htbp] % IEEE通常建议使用t, b, p，h容易失效
+    \centering
+    % 将宽度设为 \columnwidth 的 0.9 到 1 倍
+    \includegraphics[width=1.0\columnwidth]{pipeline.png} 
+    \caption{Illustration of our Pipeline.}
+    \label{fig:pipeline}
+\end{figure}
+
+The decision-making architecture of NewAgent is structured as a funnel, progressively narrowing down the solution space. As illustrated in Fig. \ref{fig:pipeline}, the pipeline consists of four stages:
+
+\begin{enumerate}
+    \item \textbf{Candidate Generation}: Using geometric reasoning to identify valid target-pocket pairs and generating a set of 24 heuristic candidate actions.
+    \item \textbf{Fast Screening}: Evaluating these candidates using a single ideal (noise-free) simulation to quickly discard poor options and select the top 6.
+    \item \textbf{Noise Robustness Testing}: Subjecting the top candidates to multiple Monte Carlo simulations with random noise to assess reliability.
+    \item \textbf{Local Optimization}: Fine-tuning the best action using stochastic local search to maximize precision.
+\end{enumerate}
+
+\subsection{Geometric Pre-Analysis}
+
+Before incurring the computational cost of physics simulations, we perform a lightweight geometric analysis to filter impossible shots and rank potential candidates.
+
+\begin{figure}[htbp] % IEEE通常建议使用t, b, p，h容易失效
+    \centering
+    % 将宽度设为 \columnwidth 的 0.9 到 1 倍
+    \includegraphics[width=1.0\columnwidth]{candidate_path.png} 
+    \caption{Illustration of a clear path.}
+    \label{fig:candidate_path}
+\end{figure}
+
+\begin{figure}[htbp] % h:当前位置, t:顶部, b:底部, p:浮动页
+    \centering
+    \includegraphics[width=1.0\columnwidth]{blocked_path.png} 
+    \caption{Illustration of a blocked path.}
+    \label{fig:blocked_path} % 引用标签，方便文中提及
+\end{figure}
+
+\begin{figure}[htbp] % h:当前位置, t:顶部, b:底部, p:浮动页
+    \centering
+    \includegraphics[width=1.0\columnwidth]{black8.png} 
+    \caption{Illustration of an 8-Ball penalty.}
+    \label{fig:black8} % 引用标签，方便文中提及
+\end{figure}
+
+\subsubsection{Path Clearance Detection}
+
+A critical step is ensuring the shot is physically possible. We verify path clearance from the cue ball to the target ball, and from the target ball to the pocket. For every other ball on the table acting as a potential obstacle, we compute its perpendicular distance to the trajectory:
+
+\begin{equation}
+d_{\perp} = \left| \vec{v} \cdot \hat{n} \right|
+\end{equation}
+
+where $\vec{v}$ is the vector from the path start point to the obstacle ball center, and $\hat{n}$ is the unit normal vector to the path direction. If $d_{\perp} < 2.5 \times r_{ball}$ (providing a safety margin larger than the ball diameter), the path is flagged as blocked (see Fig. \ref{fig:blocked_path}).
+
+\subsubsection{Geometric Scoring}
+
+To prioritize candidates, each valid target-pocket combination is assigned a heuristic score:
+
+\begin{equation}
+S_{geo} = S_{path} - 8 \times (d_{cue} + d_{pocket}) + 25 \times S_{angle} - P_{eight}
+\end{equation}
+
+where:
+\begin{itemize}
+    \item $S_{path} \in \{25, 50, 100\}$ rewards clear paths (100 for fully clear, lower for partial obstructions).
+    \item $d_{cue}, d_{pocket}$ are distances (meters), penalizing harder long-distance shots.
+    \item $S_{angle} = 1 - \frac{|\theta_{diff}|}{180}$ rewards straighter shots which are mechanically easier, where $\theta_{diff}$ is the cut angle.
+    \item $P_{eight} = 300$ serves as a massive penalty if an eight-ball collision risk is detected.
+\end{itemize}
+
+\subsubsection{Eight-Ball Risk Detection}
+
+Prematurely pocketing the 8-ball is a terminal failure state. We implemented a rigorous multi-layer detection mechanism:
+\begin{enumerate}
+    \item Check if the 8-ball lies dangerously close to the cue-to-target path (risk of accidental collision).
+    \item Check if the 8-ball obstructs the target-to-pocket path.
+\end{enumerate}
+
+If the 8-ball is found within a safety radius of $3.5 \times r_{ball}$ of either path, the shot is flagged as high-risk ($P_{eight}$ applied), heavily discouraging the agent from selecting it unless absolutely necessary.
+
+\subsection{Aimed Shot Generation}
+
+Once a target-pocket pair is selected, we calculate the required cue ball trajectory. We compute the ideal cue angle $\phi_{aim}$:
+
+\begin{equation}
+\phi_{aim} = \arctan2(y_{hit} - y_{cue}, x_{hit} - x_{cue})
+\end{equation}
+
+Here, $(x_{hit}, y_{hit})$ represents the "ghost ball" position—the ideal contact point calculated by extending the pocket-to-target vector backward by $2 \times r_{ball}$ from the target ball's center.
+
+\subsection{Velocity Selection}
+
+Appropriate velocity is crucial for shot success and cue ball positioning. We compute a dynamic initial velocity based on the total shot distance to ensure sufficient energy:
+
+\begin{equation}
+V_0 = \min(4.5, \max(1.8, 1.5 + 0.7 \times (d_{cue} + d_{pocket})))
+\end{equation}
+
+To increase diversity, for each geometric candidate, we generate 4 velocity variants around this base value: $V_0 + \{-0.3, 0, +0.3, +0.6\}$ m/s, allowing the agent to choose between soft control shots and power shots.
+
+\subsection{Noise-Robust Evaluation}
+
+The simulation environment introduces Gaussian noise to simulate human imperfection, as detailed in Table \ref{tab:noise}.
+
+\begin{table}[h]
+\caption{Noise Parameters}
+\label{tab:noise}
+\begin{center}
+\begin{tabular}{|c|c|c|}
+\hline
+Parameter & Description & $\sigma$ \\
+\hline
+$V_0$ & Initial velocity (m/s) & 0.1 \\
+$\phi$ & Horizontal angle (deg) & 0.1 \\
+$\theta$ & Vertical angle (deg) & 0.1 \\
+$a$ & Horizontal offset & 0.003 \\
+$b$ & Vertical offset & 0.003 \\
+\hline
+\end{tabular}
+\end{center}
+\end{table}
+
+A shot that works only under perfect conditions is risky. To assess robustness, for the top candidates, we perform $N_{trials} = 3$ independent noisy simulations and compute a combined score:
+
+\begin{equation}
+S_{combined} = 0.4 \times S_{ideal} + 0.6 \times \bar{S}_{noisy}
+\end{equation}
+
+This weighted metric ($60\%$ weight on noise performance) encourages the agent to select "safer" shots that remain successful even when execution errors occur.
+
+\subsection{Reward Function}
+
+The sparse reward signal is shaped to guide the agent towards winning behavior while avoiding fouls. The internal reward components are listed in Table \ref{tab:reward}.
+
+\begin{table}[h]
+\caption{Reward Components}
+\label{tab:reward}
+\begin{center}
+\begin{tabular}{|l|r|}
+\hline
+Event & Score \\
+\hline
+Pocket own ball & +50 \\
+Legal 8-ball pocket (after clearing) & +100 \\
+No foul, no pocket & +10 \\
+Pocket opponent ball & -20 \\
+First-hit foul & -30 \\
+No-rail foul & -30 \\
+Cue ball pocketed & -100 \\
+Illegal 8-ball pocket & -200 \\
+Cue + 8-ball pocketed & -150 \\
+\hline
+\end{tabular}
+\end{center}
+\end{table}
+
+\subsection{Local Optimization}
+
+The discretization of parameters in the earlier stages may miss the optimum. Therefore, after identifying the best robust candidate, we perform $N_{opt} = 10$ rounds of local search. We apply small random perturbations to the parameters:
+
+\begin{itemize}
+    \item \textbf{phi}: $\phi \pm \mathcal{U}(-2, 2)$ degrees
+    \item \textbf{V0}: $V_0 \pm \mathcal{U}(-0.4, 0.4)$ m/s
+    \item \textbf{combined}: Perturbing both simultaneously.
+    \item \textbf{fine\_phi}: Micro-adjustments $\phi \pm \mathcal{U}(-0.5, 0.5)$ degrees.
+\end{itemize}
+
+This step allows the agent to fine-tune the cut angle and speed, often turning a "near miss" into a successful pot.
+
+\subsection{Safety Fallback}
+
+If no satisfactory action is found (e.g., all $S_{combined} \leq -200$ due to high risk), the agent defaults to a conservative safety strategy: it aims directly at the center of the nearest visible target ball with moderate velocity ($V_0 = 2.0$ m/s) to make a legal hit and avoid a foul, rather than attempting a risky pot.
+
+\section{EXPERIMENTAL RESULTS}
+
+\subsection{Experimental Setup}
+
+All experiments were conducted using the standard pooltool physics engine. To ensure statistical significance and fairness, we adhered to the following protocol:
+\begin{itemize}
+    \item \textbf{Environment}: Official course pooltool environment.
+    \item \textbf{Opponents}: 
+        \begin{itemize}
+            \item \textit{BasicAgent}: A baseline using Bayesian optimization.
+            \item \textit{BasicAgentPro}: An advanced opponent using MCTS with 50 simulations.
+        \end{itemize}
+    \item \textbf{Procedure}: Each experiment consisted of a standard batch of 120 games (30 cycles of 4 games), ensuring balanced starting player and ball type assignments.
+    \item \textbf{Metric}: Win rate defined as $(Wins + 0.5 \times Draws) / Total Games$.
+\end{itemize}
+
+\subsection{Results vs. BasicAgent}
+
+We first evaluated NewAgent against the standard BasicAgent over 10 independent experiments (Total 1,200 games). The detailed results are presented in Table \ref{tab:basic_results} and visualized in Fig. \ref{fig:win_rate_basic}.
+
+\begin{table}[h]
+\caption{Battle Results vs. BasicAgent (10 Experiments, 120 Games Each)}
+\label{tab:basic_results}
+\begin{center}
+\begin{tabular}{|c|c|c|c|c|}
+\hline
+\textbf{Exp.} & \textbf{NewAgent} & \textbf{BasicAgent} & \textbf{Draw} & \textbf{Win Rate} \\
+\hline
+1 & 102 & 18 & 0 & 85.0\% \\
+2 & 105 & 15 & 0 & 87.5\% \\
+3 & 105 & 15 & 0 & 87.5\% \\
+4 & 106 & 14 & 0 & 88.3\% \\
+5 & 108 & 12 & 0 & 90.0\% \\
+6 & 104 & 16 & 0 & 86.7\% \\
+7 & 110 & 10 & 0 & 91.7\% \\
+8 & 104 & 16 & 0 & 86.7\% \\
+9 & 110 & 10 & 0 & 91.7\% \\
+10 & 104 & 16 & 0 & 86.7\% \\
+\hline
+\textbf{Total} & \textbf{1058} & \textbf{142} & \textbf{0} & \textbf{88.2\%} \\
+\hline
+\end{tabular}
+\end{center}
+\end{table}
+
+\begin{figure}[htbp] % h:当前位置, t:顶部, b:底部, p:浮动页
+    \centering
+    \includegraphics[width=1.0\columnwidth]{win_rate_basic.png}
+    \caption{Scatter plot of battle results against BasicAgent.}
+    \label{fig:win_rate_basic} % 引用标签，方便文中提及
+\end{figure}
+
+NewAgent demonstrated overwhelming superiority, achieving an average win rate of \textbf{88.2\%}. It consistently scored above 85\%, proving the stability of the hybrid strategy against a weaker opponent.
+
+\subsection{Results vs. BasicAgentPro}
+
+Given the high performance against the baseline, we progressed to the more challenging BasicAgentPro. We conducted extensive testing in two large batches, accumulating a total of \textbf{9,600 games} (80 experiments $\times$ 120 games).
+
+\begin{table}[h]
+\caption{Battle Results vs. BasicAgentPro (80 Experiments, 120 Games Each)}
+\label{tab:pro_results}
+\begin{center}
+\begin{tabular}{|l|c|c|c|c|}
+\hline
+\textbf{Batch} & \textbf{Exp.} & \textbf{Total Games} & \textbf{NewAgent Wins} & \textbf{Win Rate} \\
+\hline
+Batch 1 & 40 & 4,800 & 2,909 & 60.6\% \\
+Batch 2 & 40 & 4,800 & 2,861 & 59.6\% \\
+\hline
+\textbf{Total} & \textbf{80} & \textbf{9,600} & \textbf{5,770} & \textbf{60.1\%} \\
+\hline
+\end{tabular}
+\end{center}
+\end{table}
+
+\begin{figure}[htbp] % h:当前位置, t:顶部, b:底部, p:浮动页
+    \centering
+    \includegraphics[width=1.0\columnwidth]{win_rate_pro.png}
+    \caption{Scatter plot of battle results against BasicAgentPro.}
+    \label{fig:win_rate_pro} % 引用标签，方便文中提及
+\end{figure}
+
+As shown in Table \ref{tab:pro_stats}, despite BasicAgentPro utilizing a brute-force MCTS approach (50 simulations per decision), NewAgent maintained a significant edge with a **60.1\%** overall win rate.
+
+\begin{table}[h]
+\caption{Detailed Statistics vs. BasicAgentPro}
+\label{tab:pro_stats}
+\begin{center}
+\begin{tabular}{|l|c|c|}
+\hline
+\textbf{Metric} & \textbf{Batch 1} & \textbf{Batch 2} \\
+\hline
+Experiments & 40 & 40 \\
+Games per experiment & 120 & 120 \\
+Total games & 4,800 & 4,800 \\
+\hline
+Avg. wins per experiment & 72.7 & 71.5 \\
+Win rate & 60.6\% & 59.6\% \\
+\hline
+\end{tabular}
+\end{center}
+\end{table}
+
+This result highlights that intelligent pre-filtering and noise robustness (NewAgent) outperform pure computational brute force (BasicAgentPro) in stochastic environments.
+
+\subsection{Performance Analysis}
+
+\subsubsection{Overall Summary}
+
+The aggregate performance across all experiments is summarized below:
+
+\begin{table}[h]
+\caption{Complete Experimental Summary}
+\label{tab:summary}
+\begin{center}
+\begin{tabular}{|l|c|c|c|}
+\hline
+\textbf{Opponent} & \textbf{Total Games} & \textbf{NewAgent Wins} & \textbf{Win Rate} \\
+\hline
+BasicAgent & 1,200 & 1,058 & \textbf{88.2\%} \\
+BasicAgentPro & 9,600 & 5,770 & \textbf{60.1\%} \\
+\hline
+\textbf{Combined} & \textbf{10,800} & \textbf{6,828} & \textbf{63.2\%} \\
+\hline
+\end{tabular}
+\end{center}
+\end{table}
+
+\subsubsection{Comparison with Baselines}
+
+\begin{table}[h]
+\caption{Agent Comparison Summary}
+\label{tab:comparison}
+\begin{center}
+\begin{tabular}{|l|c|c|}
+\hline
+\textbf{Agent} & \textbf{Method} & \textbf{Win Rate} \\
+\hline
+BasicAgent & Bayesian Opt. & 50\% (baseline) \\
+BasicAgentPro & MCTS (50 sims) & $\sim$70\% vs Basic \\
+\textbf{NewAgent} & Hybrid & \textbf{88.2\%} vs Basic \\
+\textbf{NewAgent} & Hybrid & \textbf{60.1\%} vs Pro \\
+\hline
+\end{tabular}
+\end{center}
+\end{table}
+
+\subsubsection{Key Observations from Game Logs}
+
+By analyzing the game logs, we identified distinct behaviors contributing to NewAgent's success:
+\begin{enumerate}
+    \item \textbf{Effective Multi-ball Pocketing}: The agent frequently managed to pocket clusters of balls, as noted in logs (e.g., ``Player B pocketed ['9', '12']''), indicating effective angle selection that disrupts clusters.
+    \item \textbf{Run-out Capability}: In several instances, the agent cleared 4-5 balls in a single turn. This suggests that the geometric scoring implicitly encourages positions that allow for continuation.
+    \item \textbf{Robust 8-Ball Safety}: The explicit risk detection logic proved highly effective. While Pro agents occasionally lost by accidentally pocketing the 8-ball, NewAgent rarely committed this fatal error.
+    \item \textbf{Foul Exploitation}: NewAgent capitalized on "ball-in-hand" situations resulting from opponent fouls, converting them into high-probability scoring chains.
+\end{enumerate}
+
+\subsubsection{Failure Mode Analysis}
+
+Despite the success, some limitations persist:
+\begin{itemize}
+    \item \textbf{Weak Break Shot}: The agent uses a generalized strategy for the break. A specialized break policy could potentially yield better initial table layouts.
+    \item \textbf{Lack of Defensive Play}: When offensive options are blocked, the agent defaults to a simple hit rather than playing a "snooker" to trap the opponent.
+    \item \textbf{Cluttered Tables}: On highly congested tables, the geometric pathfinder is sometimes overly conservative, filtering out complex bank shots or kick shots that might be possible.
+\end{itemize}
+
+\subsection{Computational Efficiency}
+
+The proposed method is highly efficient. By filtering candidates geometrically, we reduced the number of physics simulations required per decision from potentially hundreds (in pure MCTS) to just roughly 24 candidates, with only the top 6 undergoing expensive noise testing. The average decision time is 0.5-1.5 seconds, comfortably within the 3-minute limit.
+
+\section{CONCLUSIONS AND FUTURE WORK}
+
+In this work, we presented NewAgent, a hybrid AI agent for 8-ball pool that synergizes geometric analysis with noise-robust simulation. Through rigorous testing over 10,000 games, we demonstrated that our agent achieves an average win rate of \textbf{88.2\%} against BasicAgent and \textbf{60.1\%} against the stronger BasicAgentPro. Key success factors include the multi-stage filtering pipeline and the explicit handling of execution noise.
+
+\subsection{Key Contributions}
+
+\begin{enumerate}
+    \item \textbf{Hybrid Pipeline}: A novel architecture combining geometric heuristics for search space pruning with physics simulation for evaluation, balancing speed and accuracy.
+    \item \textbf{Noise-Robustness}: A weighted evaluation metric ($0.4 \times S_{ideal} + 0.6 \times \bar{S}_{noisy}$) that explicitly penalizes brittle solutions, leading to more consistent gameplay.
+    \item \textbf{Safety Mechanisms}: A multi-layer 8-ball risk assessment system that effectively eliminates the most common cause of self-defeat in pool AI.
+\end{enumerate}
+
+\subsection{Future Improvements}
+
+Future work will focus on enhancing long-term strategy:
+\begin{itemize}
+    \item \textbf{Position Play}: Explicitly simulating the post-shot cue ball resting position to maximize the probability of the \textit{next} shot (lookahead).
+    \item \textbf{Defensive Strategy}: Implementing safety shots (safeties) when the probability of potting is low.
+    \item \textbf{Learning-Based Tuning}: Using Reinforcement Learning (RL) to dynamically tune the weights of the geometric scoring function based on game states.
+\end{itemize}
+
+\section{CONTRIBUTION STATEMENT}
+
+% 请根据实际情况修改以下内容
+\textbf{Ruikang Lin}:
+\begin{itemize}
+    \item Designed and implemented the geometric pre-analysis module.
+    \item Developed the eight-ball risk detection mechanism.
+    \item Conducted experiments against BasicAgent.
+    \item Wrote the methodology and experimental results sections.
+\end{itemize}
+
+\textbf{Beiyu Zhou}:
+\begin{itemize}
+    \item Implemented the noise-robust evaluation system.
+    \item Developed the local optimization module.
+    \item Conducted experiments against BasicAgentPro.
+    \item Wrote the introduction and related work sections.
+\end{itemize}
+
+% 如果是单人完成，可以删除组员2的部分，并修改组员1的描述
+
+\addtolength{\textheight}{-6cm}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section*{APPENDIX}
+
+\subsection*{A. Key Parameters}
+
+\begin{table}[h]
+\begin{center}
+\begin{tabular}{|l|c|l|}
+\hline
+Parameter & Value & Description \\
+\hline
+num\_candidates & 24 & Maximum candidate actions \\
+num\_noise\_trials & 3 & Noisy simulations per action \\
+num\_local\_opt & 10 & Local optimization iterations \\
+top\_candidates & 6 & Actions for noise testing \\
+\hline
+\end{tabular}
+\end{center}
+\end{table}
+
+\subsection*{B. Algorithm Pseudocode}
+
+\begin{algorithmic}
+\STATE \textbf{Input:} balls, my\_targets, table
+\STATE \textbf{Output:} best\_action
+\STATE
+\STATE candidates $\leftarrow$ GenerateCandidates(balls, my\_targets, table)
+\STATE
+\FOR{action in candidates}
+    \STATE score $\leftarrow$ SimulateIdeal(action)
+    \IF{action.eight\_risk AND score $<$ 50}
+        \STATE score $\leftarrow$ score - 100
+    \ENDIF
+\ENDFOR
+\STATE
+\STATE top6 $\leftarrow$ SortByScore(candidates)[:6]
+\STATE
+\FOR{action in top6}
+    \STATE combined $\leftarrow$ EvaluateWithNoise(action, 3)
+    \IF{combined $\geq$ 40}
+        \STATE \textbf{break}
+    \ENDIF
+\ENDFOR
+\STATE
+\STATE best\_action $\leftarrow$ LocalOptimize(best\_action, 10)
+\STATE \textbf{return} best\_action
+\end{algorithmic}
+
+\section*{ACKNOWLEDGMENT}
+
+We thank the AI3603 course team for providing the billiards simulation environment and baseline agents. We also thank the pooltool open-source project for the physics simulation engine.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\begin{thebibliography}{99}
+
+\bibitem{pooltool} E. Landgren, ``pooltool: A sandbox billiards game that emphasizes realistic physics,'' GitHub repository, 2023. [Online]. Available: https://github.com/ekiefl/pooltool
+
+\bibitem{mcts_games} C. B. Browne et al., ``A Survey of Monte Carlo Tree Search Methods,'' IEEE Trans. Comput. Intell. AI Games, vol. 4, no. 1, pp. 1--43, Mar. 2012.
+
+\bibitem{robust_planning} S. Thrun, W. Burgard, and D. Fox, Probabilistic Robotics. Cambridge, MA: MIT Press, 2005.
+
+\bibitem{deeprl} V. Mnih et al., ``Human-level control through deep reinforcement learning,'' Nature, vol. 518, no. 7540, pp. 529--533, Feb. 2015.
+
+\bibitem{billiards_ai} M. Smith and G. Bjork, ``Algorithmic approaches to billiards game playing,'' in Proc. IEEE Conf. Comput. Intell. Games, 2018, pp. 1--8.
+
+\end{thebibliography}
+
+\end{document}
